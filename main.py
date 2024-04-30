@@ -29,8 +29,8 @@ if __name__ == '__main__':
     print(len(train_instances), len(test_instances))
     options['n_train'] = len(train_instances)
 
-    train_loader = utils.Loader(train_instances, options)
-    test_loader = utils.Loader(test_instances, options)
+    train_loader = utils.Loader(train_instances, log, options)
+    test_loader = utils.Loader(test_instances, log, options, shuffle=False)
     
     log.info('running glimpse attention model')
     log.info('using attention:' + str(options['use_attention']))

@@ -180,8 +180,7 @@ class GlimpseAttentionModel:
         num_batches = len(train_it)
         with tf.Session() as sess:
             tf.global_variables_initializer().run(session=sess)
-            best_scores = {'map@10': 0.0, 'map@50': 0.0, 'map@100': 0.0,
-                           'hits@10': 0.0, 'hits@50': 0.0, 'hits@100': 0.0, 'time_mse': float('inf')}
+            best_scores = {'time_mse': float('inf'), 'f1': 0.0}
             for e in range(1, options['epochs'] + 1):
                 global_cost = 0.
                 global_time_cost = 0.
@@ -216,16 +215,13 @@ class GlimpseAttentionModel:
 
                 if e % options['test_freq'] == 0:
                     scores = self.evaluate_model(sess, test_it, e)
-                    # print(scores)
-                    for k in best_scores.keys():
-                        if k != 'time_mse':
-                            if scores[k] > best_scores[k]:
-                                best_scores[k] = scores[k]
-                        else:
-                            if scores[k] < best_scores[k]:
-                                best_scores[k] = scores[k]
-                    '''if scores[1] < best_scores['time_mse']:
-                        best_scores['time_mse'] = scores[1]'''
+                    self.log.info(f"scores = {scores}")
+
+                    if scores["f1"] > best_scores["f1"]:
+                        best_scores["f1"] = scores["f1"]
+                    if scores["time_mse"] < best_scores["time_mse"]:
+                        best_scores["time_mse"] = scores["time_mse"]
+
                     # log.info('time prediction:' + str(scores[1]))
                     self.log.info(best_scores)
                     self.log.info(scores)
@@ -289,18 +285,65 @@ class GlimpseAttentionModel:
         df = pd.DataFrame(scores)
         return dict(df.mean())
 
+    def predict_seq(self, seq, sess, times):
+        output = []
+
+        for i in range(len(seq)):
+            cur_seq = seq[i]
+            cur_times = times[i]
+            cur_output = []
+            pred_index = np.nonzero(cur_seq == 0)[0][0]
+            self.log.info(f"cur_seq.shape = {cur_seq.shape}")
+            self.log.info(f"cur_seq = {cur_seq}")
+            self.log.info(f"pred_index = {pred_index}")
+
+            for _ in range(self.seq_len - pred_index):
+                rnn_args = {
+                    # self.init_state: np.zeros((2, self.batch_size, self.state_size)),
+                    self.input_nodes: cur_seq,
+                    self.input_times: cur_times
+                }
+                y_prob_ = sess.run([self.probs], feed_dict=rnn_args)
+                y_candidates = np.argsort(y_prob_)[::-1]
+                i = 0
+                while y_candidates[i] in seq and i < y_candidates.size:
+                    i += 1
+                y = y_candidates[i]
+                pred_index[pred_index] = y
+                cur_times[pred_index] = cur_times[pred_index - 1] + 3600
+                cur_output.append(y)
+                pred_index += 1
+
+            output.append(cur_output)
+        return np.array(output)
+
+    def calc_f1(self, output, target):
+        f1_values = []
+        for k in range(1, output.size + 1):
+            tp = np.intersect1d(output[:k], target).size
+            precision = tp / k
+            recall = tp / target.size
+            f1 = 2 * precision * recall / (precision + recall)
+            f1_values.append(f1)
+        res = np.zeros(self.seq_len, dtype=np.float32)
+        res[:len(f1_values)] = f1_values
+        res[len(f1_values):] = f1_values[-1]
+        return res
+
     def evaluate_model(self, sess, test_it, epoch):
         test_batch_size = len(test_it)
-        y = None
-        y_prob = None
-        sequences = None
-        node_scores = []
+        sequences = []
+        targets = []
+        outputs = []
+        f1_values = []
         time_scores = []
+        self.log.info(f"test_batch_size = {test_batch_size}")
+
         for i in range(0, test_batch_size):
             test_batch = test_it()
-            seq, time, seq_mask, label_n, label_t = test_batch
-            if seq.shape[0] < self.batch_size:
-                continue
+            seq, time, seq_mask, output_n, output_t = test_batch
+            # if seq.shape[0] < self.batch_size:
+            #     continue
             '''else:
                 node_score, time_score = self.evaluate_batch(test_batch, sess)
                 node_scores.append(node_score)
@@ -308,32 +351,18 @@ class GlimpseAttentionModel:
             if self.loss_type == 'mse':
                 time_pred = 0.0
             else:
-                time_pred = self.predict_time(sess, time, label_t, seq)
+                time_pred = self.calc_time_loss(sess, time, output_t, seq)
             time_scores.append(time_pred)
-            y_ = label_n
-            rnn_args = {
-                # self.init_state: np.zeros((2, self.batch_size, self.state_size)),
-                self.input_nodes: seq,
-                self.input_times: time
-            }
-            y_prob_ = sess.run([self.probs], feed_dict=rnn_args)
+            output = self.predict_seq(seq, sess, time)
+            self.log.info(f"output = {output}")
 
-            y_prob_ = y_prob_[0]
-            for j, p in enumerate(y_prob_):
-                test_seq_len = test_batch[3][j]
-                test_seq = test_batch[0][j][0: int(test_seq_len)]
-                assert y_[j] not in test_seq, str(test_seq) + str(y_[j])
-                p[test_seq.astype(int)] = 0.
-                y_prob_[j, :] = p / float(np.sum(p))
+            f1 = self.calc_f1(output, output_n)
+            f1_values.append(f1)
+            self.log.info(f"f1 = {f1}")
 
-            if y_prob is None:
-                y_prob = y_prob_
-                y = y_
-                sequences = seq
-            else:
-                y = np.concatenate((y, y_), axis=0)
-                y_prob = np.concatenate((y_prob, y_prob_), axis=0)
-                sequences = np.concatenate((sequences, seq), axis=0)
+            sequences.append([index for index in seq.tolist() if index != 0])
+            targets.append(output_n)
+            outputs.append(output)
 
             # for j in range(y_.shape[0]):
             #     self.log.info(f"seq = [{', '.join(str(node) for node in seq[j])}]")
@@ -344,14 +373,19 @@ class GlimpseAttentionModel:
             print("writing results to file ...")
             with open(f"{self.data_path}/results.json", "w") as f:
                 json.dump({
-                    "sequences": [[index for index in seq if index != 0] for seq in sequences.tolist()],
-                    "y": y.tolist(),
-                    "y_prob": y_prob.tolist()
+                    "sequences": sequences,
+                    "target": [target.tolist() for target in targets],
+                    "output": [output.tolist() for output in outputs]
                 }, f, indent=2)
             print("done")
 
-        scores = metrics.portfolio(y_prob, y, k_list=[10, 50, 100])
-        scores['time_mse'] = np.mean(np.asarray(time_scores)) // test_batch_size
+        self.log.info(f"f1_values = {f1_values}")
+        self.log.info(f"lengths = {[f1_arr.size for f1_arr in f1_values]}")
+        f1 = np.max(np.mean(np.array(f1_values), axis=1))
+        scores = {
+            "f1": f1,
+            "time_mse": np.mean(np.asarray(time_scores)) // test_batch_size
+        }
         return scores
 
 

@@ -1,4 +1,7 @@
+import json
 import pickle
+
+import networkx
 import numpy as np
 import configparser
 import pandas as pd
@@ -68,12 +71,21 @@ def load_graph(data_path):
     return node_index
 
 
+def load_seeds(data_path):
+    file_name = join(data_path, 'seed_counts.txt')
+    with open(file_name) as f:
+        content = f.read()
+    return [int(num) for num in content.strip().split("\n")]
+
+
 def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=1.0, testing=False):
     max_diff = 0
     pkl_path = join(data_path, file_type + '.pkl')
     if isfile(pkl_path):
         instances = pickle.load(open(pkl_path, 'rb'))
     else:
+        test_seeds = load_seeds(data_path)  # Load number of seed nodes for each test cascade.
+
         file_name = join(data_path, file_type + '.txt')
         instances = []
         with open(file_name, 'r') as read_file:
@@ -92,22 +104,30 @@ def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=
                 if not cascade_nodes or not cascade_times:
                     continue
                 max_diff = max(max_diff, max(cascade_times))
-                ins = process_cascade(cascade_nodes, cascade_times, testing)
+                if file_type == "train":
+                    ins = process_cascade_train(cascade_nodes, cascade_times, testing)
+                else:  # test
+                    ins = process_cascade_test(cascade_nodes, cascade_times, test_seeds[i])
                 instances.extend(ins)
                 if limit is not None and i == limit:
                     break
         # pickle.dump(instances, open(pkl_path, 'wb+'))
+    instances = [ins for ins in instances if ins["label_n"]]  # Remove instances with empty outputs.
     log.info(f"instances for {file_type} :")
     for ins in instances:
         log.info(str(ins))
+    log.info(f"lengths = {[len(ins['sequence']) for ins in instances]}")
 
     total_samples = len(instances)
-    indices = np.random.choice(total_samples, int(total_samples * ratio), replace=False)
-    sampled_instances = [instances[i] for i in indices]
+    if file_type == "train":
+        indices = np.random.choice(total_samples, int(total_samples * ratio), replace=False)
+        sampled_instances = [instances[i] for i in indices]
+    else:
+        sampled_instances = instances
     return sampled_instances, max_diff
 
 
-def process_cascade(cascade, timestamps, testing=False):
+def process_cascade_train(cascade, timestamps, testing=False):
     size = len(cascade)
     examples = []
     for i, node in enumerate(cascade):
@@ -155,7 +175,7 @@ def load_params(param_file='params.ini'):
     options['epochs'] = int(config['general']['epochs'])
     options['learning_rate'] = float(config['general']['learning_rate'])
     options['state_size'] = int(config['general']['state_size'])
-    options['node_pred'] = config.getboolean('general','node_pred')
+    options['node_pred'] = config.getboolean('general', 'node_pred')
     options['shuffle'] = config.getboolean('general', 'shuffle')
     options['embedding_size'] = int(config['general']['embedding_size'])
     options['n_samples'] = int(config['general']['n_samples'])
@@ -175,7 +195,18 @@ def load_params(param_file='params.ini'):
     return options
 
 
-def prepare_minibatch(tuples, inference=False, options=None):
+def process_cascade_test(cascade, timestamps, seed_count):
+    prefix_c = cascade[: seed_count]
+    prefix_t = timestamps[: seed_count]
+    label_n = cascade[seed_count:]
+    label_t = timestamps[seed_count:]
+
+    example = {'sequence': prefix_c, 'time': prefix_t,
+               'label_n': label_n, 'label_t': label_t}
+    return [example]
+
+
+def prepare_minibatch(tuples, log, inference=False, options=None):
     seqs = [t['sequence'] for t in tuples]
     times = [t['time'] for t in tuples]
     lengths = list(map(len, seqs))
@@ -195,7 +226,7 @@ def prepare_minibatch(tuples, inference=False, options=None):
     times_matrix = np.zeros((options['seq_len'], n_samples)).astype('float32')
     for i, time in enumerate(times):
         times_matrix[: lengths[i], i] = time
-    times_matrix = np.transpose(times_matrix) 
+    times_matrix = np.transpose(times_matrix)
     # prepare topo-masks data
     '''topo_masks = [t['topo_mask'] for t in tuples]
     topo_masks_tensor = np.zeros(
@@ -213,8 +244,19 @@ def prepare_minibatch(tuples, inference=False, options=None):
     if not inference:
         labels_n = [t['label_n'] for t in tuples]
         labels_t = [t['label_t'] for t in tuples]
-        labels_vector_n = np.array(labels_n).astype('int32')
-        labels_vector_t = np.array(labels_t).astype('int32')
+
+        log.info(f"labels_n = {labels_n}")
+        if isinstance(labels_n[0], int):  # training
+            labels_vector_n = np.array(labels_n).astype('int32')
+            labels_vector_t = np.array(labels_t).astype('int32')
+        else:  # test stage; type of `labels_n` items is `list`.
+            max_len = max(len(output) for output in labels_n)
+            labels_vector_n = np.zeros((len(labels_n), max_len), dtype=np.int32)
+            labels_vector_t = np.zeros((len(labels_n), max_len), dtype=np.float32)
+            for i in range(len(labels_n)):
+                labels_vector_n[i, :len(labels_n[i])] = labels_n[i]
+                labels_vector_t[i, :len(labels_t[i])] = labels_t[i]
+
     else:
         labels_vector_t = None
         labels_vector_n = None
@@ -226,15 +268,16 @@ def prepare_minibatch(tuples, inference=False, options=None):
 
 
 class Loader:
-    def __init__(self, data, options=None):
+    def __init__(self, data, log, options=None, shuffle=True):
         self.batch_size = options['batch_size']
         self.idx = 0
         self.data = data
-        self.shuffle = True
+        self.shuffle = shuffle
         self.n = len(data)
         self.n_words = options['node_size']
         self.indices = np.arange(self.n, dtype="int32")
         self.options = options
+        self.log = log
 
     def __len__(self):
         return len(self.data) // self.batch_size + 1
@@ -252,4 +295,5 @@ class Loader:
 
         return prepare_minibatch(batch_examples,
                                  inference=False,
-                                 options=self.options)
+                                 options=self.options,
+                                 log=self.log)
