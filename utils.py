@@ -245,7 +245,7 @@ def prepare_minibatch(tuples, log, inference=False, options=None):
         labels_n = [t['label_n'] for t in tuples]
         labels_t = [t['label_t'] for t in tuples]
 
-        log.info(f"labels_n = {labels_n}")
+        # log.info(f"labels_n = {labels_n}")
         if isinstance(labels_n[0], int):  # training
             labels_vector_n = np.array(labels_n).astype('int32')
             labels_vector_t = np.array(labels_t).astype('int32')
