@@ -68,7 +68,7 @@ def load_graph(data_path):
     return node_index
 
 
-def load_instances(data_path, file_type, node_index, seq_len, limit, ratio=1.0, testing=False):
+def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=1.0, testing=False):
     max_diff = 0
     pkl_path = join(data_path, file_type + '.pkl')
     if isfile(pkl_path):
@@ -97,6 +97,10 @@ def load_instances(data_path, file_type, node_index, seq_len, limit, ratio=1.0, 
                 if limit is not None and i == limit:
                     break
         # pickle.dump(instances, open(pkl_path, 'wb+'))
+    log.info(f"instances for {file_type} :")
+    for ins in instances:
+        log.info(str(ins))
+
     total_samples = len(instances)
     indices = np.random.choice(total_samples, int(total_samples * ratio), replace=False)
     sampled_instances = [instances[i] for i in indices]

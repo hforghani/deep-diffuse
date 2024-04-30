@@ -22,9 +22,9 @@ if __name__ == '__main__':
     options['node_size'] = len(node_index)
     # print(nx.info(G))
     train_instances, max_diff_train = utils.load_instances(data_path, 'train', node_index, options['seq_len'],
-                                                           limit=-1)
+                                                           limit=-1, log=log)
     test_instances, max_diff_test = utils.load_instances(data_path, 'test', node_index, options['seq_len'],
-                                                         limit=-1)
+                                                         limit=-1, log=log)
     options['max_diff'] = max_diff_train
     print(len(train_instances), len(test_instances))
     options['n_train'] = len(train_instances)
