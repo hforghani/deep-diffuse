@@ -14,11 +14,12 @@ def process_timestamps(timestamps):
     diff = list(np.diff(arr))
     diff = [d / 60.0 for d in diff]
 
-    for i in range(0, len(diff)-1):
-        if diff[i] == diff[i+1]:
+    for i in range(0, len(diff) - 1):
+        if diff[i] == diff[i + 1]:
             for j in range(0, len(diff)):
                 diff[j] += 0.25
     return diff
+
 
 '''def write_seen_nodes(data_path, seq_len):
     seen_nodes = []
@@ -94,8 +95,8 @@ def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=
                 cascade_nodes = list(map(int, cascade.split(' ')[::2]))
                 cascade_times = list(map(float, cascade.split(' ')[1::2]))
                 if seq_len is not None:
-                    cascade_nodes = cascade_nodes[:seq_len+1]
-                    cascade_times = cascade_times[:seq_len+2]
+                    cascade_nodes = cascade_nodes[:seq_len + 1]
+                    cascade_times = cascade_times[:seq_len + 2]
                     if len(cascade_times) == len(cascade_nodes):
                         cascade_nodes.pop()
                     cascade_times = process_timestamps(cascade_times)
@@ -113,10 +114,10 @@ def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=
                     break
         # pickle.dump(instances, open(pkl_path, 'wb+'))
     instances = [ins for ins in instances if ins["label_n"]]  # Remove instances with empty outputs.
-    log.info(f"instances for {file_type} :")
-    for ins in instances:
-        log.info(str(ins))
-    log.info(f"lengths = {[len(ins['sequence']) for ins in instances]}")
+    # log.info(f"instances for {file_type} :")
+    # for ins in instances:
+    #     log.info(str(ins))
+    # log.info(f"lengths = {[len(ins['sequence']) for ins in instances]}")
 
     total_samples = len(instances)
     if file_type == "train":
@@ -147,8 +148,8 @@ def process_cascade_train(cascade, timestamps, testing=False):
             times.extend([(timestamps[i-1] - timestamps[i])])'''
 
         if not testing:
-            label_n = cascade[i+1]
-            label_t = timestamps[i+1]
+            label_n = cascade[i + 1]
+            label_t = timestamps[i + 1]
         else:
             label_n = None
             label_t = None
@@ -250,9 +251,8 @@ def prepare_minibatch(tuples, log, inference=False, options=None):
             labels_vector_n = np.array(labels_n).astype('int32')
             labels_vector_t = np.array(labels_t).astype('int32')
         else:  # test stage; type of `labels_n` items is `list`.
-            max_len = max(len(output) for output in labels_n)
-            labels_vector_n = np.zeros((len(labels_n), max_len), dtype=np.int32)
-            labels_vector_t = np.zeros((len(labels_n), max_len), dtype=np.float32)
+            labels_vector_n = np.zeros((len(labels_n), options['seq_len']), dtype=np.int32)
+            labels_vector_t = np.zeros((len(labels_n), options['seq_len']), dtype=np.float32)
             for i in range(len(labels_n)):
                 labels_vector_n[i, :len(labels_n[i])] = labels_n[i]
                 labels_vector_t[i, :len(labels_t[i])] = labels_t[i]
@@ -297,3 +297,10 @@ class Loader:
                                  inference=False,
                                  options=self.options,
                                  log=self.log)
+
+
+def get_nodes(train_instances):
+    indexes = []
+    for ins in train_instances:
+        indexes.extend(ins["sequence"])
+    return list(set(indexes))

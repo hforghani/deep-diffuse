@@ -8,6 +8,8 @@ from tensorflow.contrib import legacy_seq2seq
 # from tensorflow.contrib import seq2seq
 from sklearn.metrics import mean_squared_error
 
+from metrics import calc_metrics, auc_roc, save_roc
+
 distributions = tf.contrib.distributions
 import logging
 import metrics
@@ -57,7 +59,9 @@ class GlimpseAttentionModel:
         self.log = logging.getLogger(options['cell_type'] + '.' + __name__)
         self.log.setLevel(logging.DEBUG)
         self.data_path = f"{options['data_dir']}/{options['dataset_name']}"
+        self.dataset_name = options['dataset_name']
         self.epochs = options["epochs"]
+        self.train_nodes = options['train_nodes']
         '''if use_att:
             self.use_att = True
             self.attention_size = self.win_len'''
@@ -328,29 +332,12 @@ class GlimpseAttentionModel:
 
         return outputs
 
-    def calc_f1(self, output, target):
-        f1_values = []
-        target_lengths = np.sum(target != 0, axis=1)
-
-        for k in range(1, self.seq_len + 1):
-            tp = np.zeros(output.shape[0], dtype=np.float32)
-            for i in range(output.shape[0]):
-                tp[i] = np.intersect1d(output[i, :k], target[i, :]).size
-            precision = tp / k
-            recall = np.divide(tp, target_lengths)
-            f1 = 2 * np.multiply(precision, recall) / (precision + recall)
-            f1[np.isnan(f1)] = 0
-            f1_values.append(f1)
-        return np.array(f1_values)
-
     def evaluate_model(self, sess, test_it, epoch):
         test_batch_size = len(test_it)
-        sequences = []
-        targets = []
-        outputs = []
-        f1_values = None
+        sequences, targets, outputs = None, None, None
+        f1_values, fpr_values, tpr_values = None, None, None
         time_scores = []
-        # self.log.info(f"test_batch_size = {test_batch_size}")
+        self.log.info(f"test_batch_size = {test_batch_size}")
 
         for i in range(0, test_batch_size):
             test_batch = test_it()
@@ -369,37 +356,48 @@ class GlimpseAttentionModel:
             output = self.predict_seq(seq, sess, time)
             # self.log.info(f"output = {output}")
 
-            f1 = self.calc_f1(output, target_n)
+            _, tpr, f1, fpr = calc_metrics(output, target_n, seq, self.seq_len, np.array(self.train_nodes), self.log)
             # self.log.info(f"f1 = {f1}")
             if f1_values is None:
-                f1_values = f1
+                f1_values, fpr_values, tpr_values = f1, fpr, tpr
+                sequences, targets, outputs = seq, target_n, output
             else:
                 f1_values = np.vstack((f1_values, f1))
+                fpr_values = np.vstack((fpr_values, fpr))
+                tpr_values = np.vstack((tpr_values, tpr))
+                sequences = np.vstack((sequences, seq))
+                # self.log.info(f"targets.shape = {targets.shape}")
+                # self.log.info(f"target_n.shape = {target_n.shape}")
+                targets = np.vstack((targets, target_n))
+                outputs = np.vstack((outputs, output))
 
-            sequences.append([index for index in seq.tolist() if index != 0])
-            targets.append(target_n)
-            outputs.append(output)
+        try:
+            if epoch == self.epochs:
+                print("writing results to file ...")
+                with open(f"{self.data_path}/results.json", "w") as f:
+                    json.dump({
+                        "sequences": [[index for index in row if index != 0] for row in sequences.tolist()],
+                        "target": [[index for index in row if index != 0] for row in targets.tolist()],
+                        "output": [[index for index in row if index != 0] for row in outputs.tolist()],
+                    }, f, indent=2)
+                print("done")
+                print("saving RoC ...")
+                avg_fpr_scores = np.mean(fpr_values, axis=1)
+                avg_tpr_scores = np.mean(tpr_values, axis=1)
+                save_roc(avg_fpr_scores.tolist(), avg_tpr_scores.tolist(), self.dataset_name)
+                print("done")
+        except Exception as ex:
+            self.log.error(str(ex))
 
-            # for j in range(y_.shape[0]):
-            #     self.log.info(f"seq = [{', '.join(str(node) for node in seq[j])}]")
-            #     self.log.info(f"y = {y_[j]}")
-            #     self.log.info(f"y_prob = [{', '.join(str(prob) for prob in y_prob_[j])}]")
-
-        if epoch == self.epochs:
-            print("writing results to file ...")
-            with open(f"{self.data_path}/results.json", "w") as f:
-                json.dump({
-                    "sequences": sequences,
-                    "target": [target.tolist() for target in targets],
-                    "output": [output.tolist() for output in outputs]
-                }, f, indent=2)
-            print("done")
-
+        # self.log.info(f"f1_values.shape = {f1_values.shape}")
         # self.log.info(f"f1_values = {f1_values}")
-        # self.log.info(f"lengths = {[f1_arr.size for f1_arr in f1_values]}")
         f1 = np.max(np.mean(f1_values, axis=1))
+        avg_fpr_scores = np.mean(fpr_values, axis=1)
+        avg_tpr_scores = np.mean(tpr_values, axis=1)
+        auc = auc_roc(avg_fpr_scores, avg_tpr_scores)
         scores = {
             "f1": f1,
+            "auc_roc": auc,
             "time_mse": np.mean(np.asarray(time_scores)) // test_batch_size
         }
         return scores

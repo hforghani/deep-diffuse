@@ -1,6 +1,12 @@
 '''
 Evaluation metrics functions.
 '''
+import datetime
+import json
+import os
+from typing import Tuple
+
+import numpy
 # import math
 import numpy as np
 import collections
@@ -8,8 +14,10 @@ import collections
 # from sklearn.metrics import roc_auc_score
 # from sklearn.metrics import roc_curve, auc
 # from sklearn.metrics import average_precision_score
+from sklearn import metrics
 from sklearn.preprocessing import label_binarize
 from scipy.stats import rankdata
+from matplotlib import pyplot
 
 
 def _retype(y_prob, y):
@@ -129,3 +137,88 @@ def portfolio(y_prob, y, k_list=None):
         scores['map@' + str(k)] = mapk(y_prob, y, k=k)
 
     return scores
+
+
+def calc_metrics(output, target, seq, seq_len, train_nodes, log):
+    precision_values = []
+    recall_values = []
+    f1_values = []
+    fpr_values = []
+    target_lengths = np.count_nonzero(target, axis=1)
+    new_target_counts = np.zeros(output.shape[0])
+    for i in range(output.shape[0]):
+        new_target_counts[i] = np.sum(np.logical_not(np.isin(target[i, :target_lengths[i]], train_nodes)))
+    ref = train_nodes.size - np.count_nonzero(seq, axis=1) + new_target_counts
+    # log.info(f"target_lengths = {target_lengths}")
+    # log.info(f"new_target_counts = {new_target_counts}")
+    # log.info(f"ref = {ref}")
+
+    for k in range(1, seq_len + 1):
+        tp = np.zeros(output.shape[0], dtype=np.float32)
+        for i in range(output.shape[0]):
+            tp[i] = np.intersect1d(output[i, :k], target[i, :target_lengths[i]]).size
+        precision = tp / k
+        recall = np.divide(tp, target_lengths)
+        f1 = 2 * np.multiply(precision, recall) / (precision + recall)
+        f1[np.isnan(f1)] = 0
+        fpr = np.divide(np.count_nonzero(output[:, :k], axis=1) - tp, ref)
+        # log.info(f"k = {k}")
+        # log.info(f"tp = {tp}")
+        # log.info(f"precision = {precision}")
+        # log.info(f"recall = {recall}")
+        # log.info(f"f1 = {f1}")
+        # log.info(f"fpr = {fpr}")
+
+        precision_values.append(precision)
+        recall_values.append(recall)
+        f1_values.append(f1)
+        fpr_values.append(fpr)
+
+    precision_values = np.array(precision_values)
+    recall_values = np.array(recall_values)
+    f1_values = np.array(f1_values)
+    fpr_values = np.array(fpr_values)
+
+    return precision_values, recall_values, f1_values, fpr_values
+
+
+def auc_roc(fprs: list, tprs: list):
+    """ area under curve of ROC """
+    fprs, tprs = prepare_roc(fprs, tprs)
+    return metrics.auc(fprs, tprs)
+
+
+def prepare_roc(fprs, tprs) -> Tuple[np.array, np.array]:
+    """ Preprocess fpr and tpr values and sort them to calculate auc_roc or to plot ROC """
+    # Every ROC curve must have 2 points <0,0> (no output) and <1,1> (returning all reference set as output).
+    fprs, tprs = np.array(fprs), np.array(tprs)
+    indexes = fprs.argsort()
+    fprs = fprs[indexes]
+    tprs = tprs[indexes]
+    if (fprs[0], tprs[0]) != (0, 0):
+        fprs = np.hstack((np.array([0]), fprs))
+        tprs = np.hstack((np.array([0]), tprs))
+    if (fprs[-1], tprs[-1]) != (1, 1):
+        fprs = np.hstack((fprs, np.array([1])))
+        tprs = np.hstack((tprs, np.array([1])))
+    return fprs, tprs
+
+
+def save_roc(fpr_list: list, tpr_list: list, dataset: str):
+    """
+    Save ROC plot as png and FPR-TPR values as json.
+    """
+    fpr, tpr = prepare_roc(fpr_list, tpr_list)
+    pyplot.figure()
+    pyplot.plot(fpr, tpr)
+    pyplot.axis((0, 1, 0, 1))
+    pyplot.xlabel("fpr")
+    pyplot.ylabel("tpr")
+    results_path = 'results'
+    if not os.path.exists(results_path):
+        os.mkdir(results_path)
+    base_name = f'{dataset}-deepdiffuse-nodes-roc-{datetime.datetime.now()}'.replace(" ", "-")
+    pyplot.savefig(os.path.join(results_path, f'{base_name}.png'))
+    # pyplot.show()
+    with open(os.path.join(results_path, f'{base_name}.json'), "w") as f:
+        json.dump({"fpr": fpr.tolist(), "tpr": tpr.tolist()}, f)

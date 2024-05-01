@@ -5,6 +5,7 @@ from os.path import join
 import utils
 from glimpse_attention_model import GlimpseAttentionModel
 import logging
+
 train_len = 5000
 
 if __name__ == '__main__':
@@ -25,13 +26,16 @@ if __name__ == '__main__':
                                                            limit=-1, log=log)
     test_instances, max_diff_test = utils.load_instances(data_path, 'test', node_index, options['seq_len'],
                                                          limit=-1, log=log)
+    options['train_nodes'] = utils.get_nodes(train_instances)
+    # log.info(f"len(options['train_nodes']) = {len(options['train_nodes'])}")
+
     options['max_diff'] = max_diff_train
-    print(len(train_instances), len(test_instances))
+    log.info(f"num of train/test instances: {len(train_instances)}, {len(test_instances)}")
     options['n_train'] = len(train_instances)
 
     train_loader = utils.Loader(train_instances, log, options)
     test_loader = utils.Loader(test_instances, log, options, shuffle=False)
-    
+
     log.info('running glimpse attention model')
     log.info('using attention:' + str(options['use_attention']))
     log.info(options)
