@@ -219,7 +219,7 @@ class GlimpseAttentionModel:
                         global_time_cost))
 
                 if e % options['test_freq'] == 0:
-                    scores, results = self.evaluate_model(sess, test_it, e)
+                    scores, results = self.evaluate_model(sess, test_it)
                     self.log.info(f"scores = {scores}")
 
                     if scores["f1"] > best_scores["f1"]:
@@ -315,7 +315,7 @@ class GlimpseAttentionModel:
 
         return outputs
 
-    def evaluate_model(self, sess, test_it, epoch):
+    def evaluate_model(self, sess, test_it):
         test_batch_size = len(test_it)
         sequences, targets, outputs = None, None, None
         f1_values, fpr_values, tpr_values = None, None, None
@@ -326,6 +326,8 @@ class GlimpseAttentionModel:
             test_batch = test_it()
             seq, time, seq_mask, target_n, target_t = test_batch
             if seq.shape[0] < self.batch_size:
+                self.log.warning(
+                    f"neglected since number of sequences smaller than batch size ({seq.shape[0]} < {self.batch_size})")
                 continue
             '''else:
                 node_score, time_score = self.evaluate_batch(test_batch, sess)
@@ -372,6 +374,7 @@ class GlimpseAttentionModel:
             "fpr": avg_fpr_scores,
             "tpr": avg_tpr_scores
         }
+        self.log.info(f"sequences.shape = {sequences.shape}")
         return scores, results
 
 

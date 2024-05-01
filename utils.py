@@ -101,6 +101,7 @@ def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=
                         cascade_nodes.pop()
                     cascade_times = process_timestamps(cascade_times)
                     assert len(cascade_nodes) == len(cascade_times)
+                # log.info(f"cascade_nodes = {cascade_nodes}")
                 cascade_nodes = [node_index[x] for x in cascade_nodes]
                 if not cascade_nodes or not cascade_times:
                     continue
@@ -113,7 +114,6 @@ def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=
                 if limit is not None and i == limit:
                     break
         # pickle.dump(instances, open(pkl_path, 'wb+'))
-    instances = [ins for ins in instances if ins["label_n"]]  # Remove instances with empty outputs.
     # log.info(f"instances for {file_type} :")
     # for ins in instances:
     #     log.info(str(ins))
