@@ -184,7 +184,8 @@ class GlimpseAttentionModel:
         num_batches = len(train_it)
         with tf.Session() as sess:
             tf.global_variables_initializer().run(session=sess)
-            best_scores = {'time_mse': float('inf'), 'f1': 0.0}
+            best_scores = {'time_mse': float('inf'), 'f1': 0, 'auc_roc': 0}
+            best_results = None
             for e in range(1, options['epochs'] + 1):
                 global_cost = 0.
                 global_time_cost = 0.
@@ -218,72 +219,50 @@ class GlimpseAttentionModel:
                         global_time_cost))
 
                 if e % options['test_freq'] == 0:
-                    scores = self.evaluate_model(sess, test_it, e)
+                    scores, results = self.evaluate_model(sess, test_it, e)
                     self.log.info(f"scores = {scores}")
 
                     if scores["f1"] > best_scores["f1"]:
                         best_scores["f1"] = scores["f1"]
+                    if scores["auc_roc"] > best_scores["auc_roc"]:
+                        best_scores["auc_roc"] = scores["auc_roc"]
+                        best_results = results
                     if scores["time_mse"] < best_scores["time_mse"]:
                         best_scores["time_mse"] = scores["time_mse"]
 
                     # log.info('time prediction:' + str(scores[1]))
-                    self.log.info(best_scores)
+                    self.log.info(f"best scores = {best_scores}")
                     self.log.info(scores)
 
-    def predict_time(self, sess, time_seq, time_label, node_seq):
-        all_log_lik = np.zeros((self.batch_size, self.n_samples), dtype=np.float)
-        for i in range(0, self.n_samples):
-            samp = np.random.randint(low=0, high=self.max_diff, size=self.batch_size)
-            rnn_args = {self.output_time: samp, self.input_nodes: node_seq, self.input_times: time_seq}
-            log_lik, hist_in, curr_in = sess.run([self.loglik, self.hist_influence, self.curr_influence],
-                                                 feed_dict=rnn_args)
-            # log_lik = np.exp(log_lik[0])
-            # print(log_lik.shape, hist_in.shape, curr_in.shape)
-            all_log_lik[:, i] = np.multiply(log_lik, samp)
-        pred_time = np.mean(all_log_lik, axis=1)
-        '''for i in range(0, self.seq_len):
-            current_input = time_seq[:, i]
-            rnn_args = {self.output_time: time_label, self.input_nodes: node_seq}
-            log_lik = sess.run([self.loglik], feed_dict=rnn_args)
-            log_lik = np.exp(log_lik[0])
-            all_log_lik[:, i] = log_lik
-        pred_time = np.mean(all_log_lik, axis=1)'''
-        return sqrt(mean_squared_error(time_label, pred_time)) / self.batch_size
+            self.save_results(best_results["sequences"],
+                              best_results["targets"],
+                              best_results["outputs"],
+                              best_results["fpr"],
+                              best_results["tpr"])
 
-    def evaluate_batch(self, test_batch, sess):
-        y = None
-        y_prob = None
-        seq, time, seq_mask, label_n, label_t = test_batch
-        y_ = label_n
-        if self.options['time_loss'] == 'mse':
-            time_pred = 0
-        else:
-            time_pred = self.predict_time(sess, time, label_t, seq)
+    def save_results(self, sequences, targets, outputs, fpr, tpr):
+        """
+        Save json of sequences, targets and predicted outputs. Plot RoC and save it as png.
+        """
+        print("writing results to file ...")
+        with open(f"{self.data_path}/results.json", "w") as f:
+            json.dump({
+                "sequences": [[index for index in row if index != 0] for row in sequences.tolist()],
+                "target": [[index for index in row if index != 0] for row in targets.tolist()],
+                "output": [[index for index in row if index != 0] for row in outputs.tolist()],
+            }, f, indent=2)
+        print("done")
+        print("saving RoC ...")
+        save_roc(fpr.tolist(), tpr.tolist(), self.dataset_name)
+        print("done")
 
-        if self.node_pred:
-            rnn_args = {self.input_nodes: seq,
-                        self.input_times: time
-                        # self.init_state: np.zeros((2, self.batch_size, self.state_size))
-                        }
-            y_prob_ = sess.run([self.probs], feed_dict=rnn_args)
-            y_prob_ = y_prob_[0]
-            # print(y_prob_.shape, log_lik.shape)
-            for j, p in enumerate(y_prob_):
-                test_seq_len = test_batch[2][j]
-                test_seq = test_batch[0][j][0: int(sum(test_seq_len))]
-                p[test_seq.astype(int)] = 0
-                y_prob_[j, :] = p / float(np.sum(p))
-
-            if y_prob is None:
-                y_prob = y_prob_
-                y = y_
-            else:
-                y = np.concatenate((y, y_), axis=0)
-                y_prob = np.concatenate((y_prob, y_prob_), axis=0)
-            node_score = metrics.portfolio(y_prob, y, k_list=[10, 50, 100])
-        else:
-            node_score = {}
-        return node_score, time_pred
+    def predict_time(self) -> tf.Tensor:
+        state_reshaped = tf.reshape(self.outputs, [-1, self.state_size])
+        time_hat = tf.matmul(state_reshaped, self.Vt) + self.bt
+        # self.log.info(f"time_hat = {time_hat}")
+        time_hat = tf.reshape(time_hat, [-1])
+        # self.log.info(f"time_hat again = {time_hat}")
+        return time_hat
 
     def get_average_score(self, scores):
         df = pd.DataFrame(scores)
@@ -320,10 +299,14 @@ class GlimpseAttentionModel:
                 y[i] = y_candidates[i, index]
             # self.log.info(f"y = {y}")
 
+            # next_time = tf.make_ndarray(tf.make_tensor_proto(self.predict_time()))
+            # self.log.info(f"next_time = {next_time}")
+
             # Set the next sequence and times for prediction.
             for i in range(seq.shape[0]):
                 if seq_lengths[i] < self.seq_len:
                     cur_seq[i, seq_lengths[i]] = y[i]
+                    # cur_times[i, seq_lengths[i]] = next_time[i]
                     cur_times[i, seq_lengths[i]] = cur_times[i, seq_lengths[i] - 1] + 60
                     seq_lengths[i] += 1
                     outputs[i, pred_index] = y[i]
@@ -371,24 +354,6 @@ class GlimpseAttentionModel:
                 targets = np.vstack((targets, target_n))
                 outputs = np.vstack((outputs, output))
 
-        try:
-            if epoch == self.epochs:
-                print("writing results to file ...")
-                with open(f"{self.data_path}/results.json", "w") as f:
-                    json.dump({
-                        "sequences": [[index for index in row if index != 0] for row in sequences.tolist()],
-                        "target": [[index for index in row if index != 0] for row in targets.tolist()],
-                        "output": [[index for index in row if index != 0] for row in outputs.tolist()],
-                    }, f, indent=2)
-                print("done")
-                print("saving RoC ...")
-                avg_fpr_scores = np.mean(fpr_values, axis=1)
-                avg_tpr_scores = np.mean(tpr_values, axis=1)
-                save_roc(avg_fpr_scores.tolist(), avg_tpr_scores.tolist(), self.dataset_name)
-                print("done")
-        except Exception as ex:
-            self.log.error(str(ex))
-
         # self.log.info(f"f1_values.shape = {f1_values.shape}")
         # self.log.info(f"f1_values = {f1_values}")
         f1 = np.max(np.mean(f1_values, axis=1))
@@ -400,7 +365,14 @@ class GlimpseAttentionModel:
             "auc_roc": auc,
             "time_mse": np.mean(np.asarray(time_scores)) // test_batch_size
         }
-        return scores
+        results = {
+            "sequences": sequences,
+            "targets": targets,
+            "outputs": outputs,
+            "fpr": avg_fpr_scores,
+            "tpr": avg_tpr_scores
+        }
+        return scores, results
 
 
 class GlimpseNet:
