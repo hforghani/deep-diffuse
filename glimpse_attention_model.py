@@ -248,8 +248,8 @@ class GlimpseAttentionModel:
         with open(f"{self.data_path}/results.json", "w") as f:
             json.dump({
                 "sequences": [[index for index in row if index != 0] for row in sequences.tolist()],
-                "target": [[index for index in row if index != 0] for row in targets.tolist()],
-                "output": [[index for index in row if index != 0] for row in outputs.tolist()],
+                "targets": [[index for index in row if index != 0] for row in targets.tolist()],
+                "outputs": [[index for index in row if index != 0] for row in outputs.tolist()],
             }, f, indent=2)
         print("done")
         print("saving RoC ...")
