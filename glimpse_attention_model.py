@@ -37,7 +37,7 @@ def loglikelihood(mean_arr, sampled_arr, sigma):
 
 
 class GlimpseAttentionModel:
-    def __init__(self, options, use_att, n_train):
+    def __init__(self, options, use_att, n_train, train_nodes):
         self.batch_size = options['batch_size']
         self.seq_len = options['seq_len']
         self.state_size = options['state_size']
@@ -61,7 +61,7 @@ class GlimpseAttentionModel:
         self.data_path = f"{options['data_dir']}/{options['dataset_name']}"
         self.dataset_name = options['dataset_name']
         self.epochs = options["epochs"]
-        self.train_nodes = options['train_nodes']
+        self.train_nodes = train_nodes
         '''if use_att:
             self.use_att = True
             self.attention_size = self.win_len'''

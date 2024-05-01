@@ -26,8 +26,8 @@ if __name__ == '__main__':
                                                            limit=-1, log=log)
     test_instances, max_diff_test = utils.load_instances(data_path, 'test', node_index, options['seq_len'],
                                                          limit=-1, log=log)
-    options['train_nodes'] = utils.get_nodes(train_instances)
-    # log.info(f"len(options['train_nodes']) = {len(options['train_nodes'])}")
+    train_nodes = utils.get_nodes(train_instances)
+    # log.info(f"len(train_nodes) = {len(train_nodes)}")
 
     options['max_diff'] = max_diff_train
     log.info(f"num of train/test instances: {len(train_instances)}, {len(test_instances)}")
@@ -39,5 +39,5 @@ if __name__ == '__main__':
     log.info('running glimpse attention model')
     log.info('using attention:' + str(options['use_attention']))
     log.info(options)
-    glimpse_ins = GlimpseAttentionModel(options, options['use_attention'], options['n_train'])
+    glimpse_ins = GlimpseAttentionModel(options, options['use_attention'], options['n_train'], train_nodes)
     glimpse_ins.run_model(train_loader, test_loader, options)
