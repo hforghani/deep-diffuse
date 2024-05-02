@@ -1,18 +1,15 @@
 import json
+import os
 
 import numpy as np
 import pandas as pd
-from math import sqrt
 import tensorflow as tf
 from tensorflow.contrib import legacy_seq2seq
-# from tensorflow.contrib import seq2seq
-from sklearn.metrics import mean_squared_error
 
 from metrics import calc_metrics, auc_roc, save_roc
 
 distributions = tf.contrib.distributions
 import logging
-import metrics
 
 
 def weight_variable(shape):
@@ -182,6 +179,20 @@ class GlimpseAttentionModel:
         self.init_variables()
         self.build_graph()
         num_batches = len(train_it)
+        self.log.info(f"num of train batches = {num_batches}")
+
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+        # config = tf.ConfigProto()
+        # config.gpu_options.allow_growth = True
+        # session = tf.Session(config=config)
+
+        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.9)
+        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2, allow_growth=True)
+        # config = tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True)
+        # tf.Session(config=tf.ConfigProto(gpu_options=gpu_options,allow_soft_placement=True))
+
+        # with tf.Session(config=config) as sess:
         with tf.Session() as sess:
             tf.global_variables_initializer().run(session=sess)
             best_scores = {'time_mse': float('inf'), 'f1': 0, 'auc_roc': 0}
@@ -192,6 +203,7 @@ class GlimpseAttentionModel:
                 global_node_cost = 0.
                 # init_state = np.zeros((2, self.batch_size, self.state_size))
                 for b in range(num_batches):
+                    self.log.info(f"training batch {b} ...")
                     one_batch = train_it()
                     seq, time, seq_mask, label_n, label_t = one_batch
                     assert seq.shape == time.shape
@@ -316,13 +328,13 @@ class GlimpseAttentionModel:
         return outputs
 
     def evaluate_model(self, sess, test_it):
-        test_batch_size = len(test_it)
+        test_batch_count = len(test_it)
         sequences, targets, outputs = None, None, None
         f1_values, fpr_values, tpr_values = None, None, None
         time_scores = []
-        self.log.info(f"test_batch_size = {test_batch_size}")
+        self.log.info(f"test_batch_count = {test_batch_count}")
 
-        for i in range(0, test_batch_size):
+        for i in range(0, test_batch_count):
             test_batch = test_it()
             seq, time, seq_mask, target_n, target_t = test_batch
             if seq.shape[0] < self.batch_size:
@@ -365,7 +377,7 @@ class GlimpseAttentionModel:
         scores = {
             "f1": f1,
             "auc_roc": auc,
-            "time_mse": np.mean(np.asarray(time_scores)) // test_batch_size
+            "time_mse": np.mean(np.asarray(time_scores)) // test_batch_count
         }
         results = {
             "sequences": sequences,

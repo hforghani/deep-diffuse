@@ -1,11 +1,7 @@
-import json
 import pickle
 
-import networkx
 import numpy as np
 import configparser
-import pandas as pd
-import networkx as nx
 from os.path import join, isfile
 
 
@@ -79,7 +75,7 @@ def load_seeds(data_path):
     return [int(num) for num in content.strip().split("\n")]
 
 
-def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=1.0, testing=False):
+def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=1.0):
     max_diff = 0
     pkl_path = join(data_path, file_type + '.pkl')
     if isfile(pkl_path):
@@ -107,7 +103,7 @@ def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=
                     continue
                 max_diff = max(max_diff, max(cascade_times))
                 if file_type == "train":
-                    ins = process_cascade_train(cascade_nodes, cascade_times, testing)
+                    ins = process_cascade_train(cascade_nodes, cascade_times)
                 else:  # test
                     ins = process_cascade_test(cascade_nodes, cascade_times, test_seeds[i])
                 instances.extend(ins)
@@ -128,39 +124,21 @@ def load_instances(data_path, file_type, node_index, seq_len, limit, log, ratio=
     return sampled_instances, max_diff
 
 
-def process_cascade_train(cascade, timestamps, testing=False):
+def process_cascade_train(cascade, timestamps):
     size = len(cascade)
     examples = []
-    for i, node in enumerate(cascade):
-        if i == size - 1 and not testing:
-            return examples
-        if i < size - 1 and testing:
-            continue
+    for i in range(0, size - 1):
         prefix_c = cascade[: i + 1]
         prefix_t = timestamps[: i + 1]
-        # predecessors = set(network[node]) & set(prefix_c)
-        # others = set(prefix_c).difference(set(predecessors))
-
-        '''if i == 0:
-            times.extend([0.0])
-        else:
-            # print(i)
-            times.extend([(timestamps[i-1] - timestamps[i])])'''
-
-        if not testing:
-            label_n = cascade[i + 1]
-            label_t = timestamps[i + 1]
-        else:
-            label_n = None
-            label_t = None
+        label_n = cascade[i + 1]
+        label_t = timestamps[i + 1]
 
         example = {'sequence': prefix_c, 'time': prefix_t,
                    'label_n': label_n, 'label_t': label_t}
 
-        if not testing:
-            examples.append(example)
-        else:
-            return example
+        examples.append(example)
+
+    return examples
 
 
 def load_params(param_file='params.ini'):

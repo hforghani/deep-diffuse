@@ -1,5 +1,3 @@
-import numpy as np
-import networkx as nx
 from os.path import join
 
 import utils
@@ -12,7 +10,9 @@ if __name__ == '__main__':
     options = utils.load_params()
     __processor__ = options['cell_type']
     # model_type = options['cell_type']
+    formatter = logging.Formatter('%(asctime)s : %(levelname)s -%(name)s : %(message)s')
     handler = logging.FileHandler('{}-{}.log'.format(__processor__, options['dataset_name']), 'w')
+    handler.setFormatter(formatter)
     log = logging.getLogger(__processor__)
     log.addHandler(handler)
     log.setLevel(logging.DEBUG)
