@@ -146,9 +146,11 @@ def calc_metrics(output, target, seq, seq_len, train_nodes, log):
     fpr_values = []
     target_lengths = np.count_nonzero(target, axis=1)
     new_target_counts = np.zeros(output.shape[0])
+    # Find the targets not visited in training set
     for i in range(output.shape[0]):
         new_target_counts[i] = np.sum(np.logical_not(np.isin(target[i, :target_lengths[i]], train_nodes)))
     ref = train_nodes.size - np.count_nonzero(seq, axis=1) + new_target_counts
+    output_seeds = np.zeros(output.shape[0])  # It will store number of the seed nodes in output.
     # log.info(f"target_lengths = {target_lengths}")
     # log.info(f"new_target_counts = {new_target_counts}")
     # log.info(f"ref = {ref}")
@@ -161,12 +163,25 @@ def calc_metrics(output, target, seq, seq_len, train_nodes, log):
         recall = np.divide(tp, target_lengths)
         f1 = 2 * np.multiply(precision, recall) / (precision + recall)
         f1[np.isnan(f1)] = 0
-        fpr = np.divide(np.count_nonzero(output[:, :k], axis=1) - tp, ref)
+
+        # Count the seed nodes in outputs.
+        output_seeds_k = np.logical_and(
+            output[:, k - 1] != 0,
+            np.sum(seq == np.repeat(
+                np.reshape(output[:, k - 1], (seq.shape[0], 1)), seq_len, axis=1
+            ), axis=1)
+        )
+        output_seeds += output_seeds_k
+
+        output_counts = np.count_nonzero(output[:, :k], axis=1)
+        fpr = np.divide(output_counts - output_seeds - tp, ref)
         # log.info(f"k = {k}")
         # log.info(f"tp = {tp}")
         # log.info(f"precision = {precision}")
         # log.info(f"recall = {recall}")
         # log.info(f"f1 = {f1}")
+        # log.info(f"output_seeds = {output_seeds}")
+        # log.info(f"output_counts = {output_counts}")
         # log.info(f"fpr = {fpr}")
 
         precision_values.append(precision)

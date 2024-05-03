@@ -302,13 +302,14 @@ class GlimpseAttentionModel:
             y_candidates = np.argsort(y_prob_, axis=1)[:, ::-1]
             # self.log.info(f"y_prob_ = {y_prob_}")
             # self.log.info(f"y_candidates = {y_candidates}")
+            y = y_candidates[:, 0]
 
-            # Find seed nodes in the y candidates. Set the first non-seed node as the prediction for each sequence.
-            y = np.zeros(seq.shape[0], dtype=np.int32)
-            for i in range(seq.shape[0]):
-                is_seed = np.isin(y_candidates[i, :], cur_seq[i, :])
-                index = np.where(np.logical_not(is_seed))[0][0]
-                y[i] = y_candidates[i, index]
+            # # Find seed nodes in the y candidates. Set the first non-seed node as the prediction for each sequence.
+            # y = np.zeros(seq.shape[0], dtype=np.int32)
+            # for i in range(seq.shape[0]):
+            #     is_seed = np.isin(y_candidates[i, :], cur_seq[i, :])
+            #     index = np.where(np.logical_not(is_seed))[0][0]
+            #     y[i] = y_candidates[i, index]
             # self.log.info(f"y = {y}")
 
             # next_time = tf.make_ndarray(tf.make_tensor_proto(self.predict_time()))
