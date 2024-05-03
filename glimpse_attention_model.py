@@ -203,7 +203,7 @@ class GlimpseAttentionModel:
                 global_node_cost = 0.
                 # init_state = np.zeros((2, self.batch_size, self.state_size))
                 for b in range(num_batches):
-                    self.log.info(f"training batch {b} ...")
+                    # self.log.info(f"training batch {b} ...")
                     one_batch = train_it()
                     seq, time, seq_mask, label_n, label_t = one_batch
                     assert seq.shape == time.shape
