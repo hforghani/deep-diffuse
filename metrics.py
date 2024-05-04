@@ -144,9 +144,10 @@ def calc_metrics(output, target, seq, seq_len, train_nodes, log):
     recall_values = []
     f1_values = []
     fpr_values = []
+    batch_size = output.shape[0]
     target_lengths = np.count_nonzero(target, axis=1)
-    new_target_counts = np.zeros(output.shape[0])
-    for i in range(output.shape[0]):
+    new_target_counts = np.zeros(batch_size, np.int32)
+    for i in range(batch_size):
         new_target_counts[i] = np.sum(np.logical_not(np.isin(target[i, :target_lengths[i]], train_nodes)))
     ref = train_nodes.size - np.count_nonzero(seq, axis=1) + new_target_counts
     # log.info(f"target_lengths = {target_lengths}")
@@ -154,8 +155,8 @@ def calc_metrics(output, target, seq, seq_len, train_nodes, log):
     # log.info(f"ref = {ref}")
 
     for k in range(1, seq_len + 1):
-        tp = np.zeros(output.shape[0], dtype=np.float32)
-        for i in range(output.shape[0]):
+        tp = np.zeros(batch_size, dtype=np.float32)
+        for i in range(batch_size):
             tp[i] = np.intersect1d(output[i, :k], target[i, :target_lengths[i]]).size
         precision = tp / k
         recall = np.divide(tp, target_lengths)

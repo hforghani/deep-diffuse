@@ -281,13 +281,16 @@ class GlimpseAttentionModel:
         return dict(df.mean())
 
     def predict_seq(self, seq, sess, times):
-        cur_seq = np.copy(seq)
-        cur_times = np.copy(times)
+        batch_size = seq.shape[0]
+        cur_seq = np.zeros((batch_size, self.vertex_size), dtype=np.int32)
+        cur_times = np.zeros((batch_size, self.vertex_size), dtype=np.float32)
+        cur_seq[:, :self.seq_len] = seq
+        cur_times[:, :self.seq_len] = times
         seq_lengths = np.count_nonzero(cur_seq, axis=1)
-        outputs = np.zeros(seq.shape, dtype=np.int32)
+        outputs = np.zeros((batch_size, self.vertex_size), dtype=np.int32)
         pred_index = 0
 
-        while not np.all(seq_lengths == self.seq_len):
+        while not np.all(seq_lengths == self.vertex_size):
             # self.log.info(f"cur_seq.shape = {cur_seq.shape}")
             # self.log.info(f"cur_seq = {cur_seq}")
             # self.log.info(f"cur_times = {cur_times}")
@@ -304,19 +307,20 @@ class GlimpseAttentionModel:
             # self.log.info(f"y_candidates = {y_candidates}")
 
             # Find seed nodes in the y candidates. Set the first non-seed node as the prediction for each sequence.
-            y = np.zeros(seq.shape[0], dtype=np.int32)
-            for i in range(seq.shape[0]):
+            y = np.zeros(batch_size, dtype=np.int32)
+            for i in range(batch_size):
                 is_seed = np.isin(y_candidates[i, :], cur_seq[i, :])
-                index = np.where(np.logical_not(is_seed))[0][0]
-                y[i] = y_candidates[i, index]
+                indexes = np.where(np.logical_not(is_seed))[0]
+                if indexes.size:
+                    y[i] = y_candidates[i, indexes[0]]
             # self.log.info(f"y = {y}")
 
             # next_time = tf.make_ndarray(tf.make_tensor_proto(self.predict_time()))
             # self.log.info(f"next_time = {next_time}")
 
             # Set the next sequence and times for prediction.
-            for i in range(seq.shape[0]):
-                if seq_lengths[i] < self.seq_len:
+            for i in range(batch_size):
+                if seq_lengths[i] < self.vertex_size:
                     cur_seq[i, seq_lengths[i]] = y[i]
                     # cur_times[i, seq_lengths[i]] = next_time[i]
                     cur_times[i, seq_lengths[i]] = cur_times[i, seq_lengths[i] - 1] + 60
@@ -324,6 +328,9 @@ class GlimpseAttentionModel:
                     outputs[i, pred_index] = y[i]
 
             pred_index += 1
+
+        # self.log.info(f"outputs.shape = {outputs.shape}")
+        # self.log.info(f"outputs = {outputs}")
 
         return outputs
 
