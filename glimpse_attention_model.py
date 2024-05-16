@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 import numpy as np
 import pandas as pd
@@ -281,6 +282,7 @@ class GlimpseAttentionModel:
         return dict(df.mean())
 
     def predict_seq(self, seq, sess, times):
+        t0 = time.time()
         batch_size = seq.shape[0]
         cur_seq = np.zeros((batch_size, self.vertex_size), dtype=np.int32)
         cur_times = np.zeros((batch_size, self.vertex_size), dtype=np.float32)
@@ -331,6 +333,7 @@ class GlimpseAttentionModel:
 
         # self.log.info(f"outputs.shape = {outputs.shape}")
         # self.log.info(f"outputs = {outputs}")
+        self.log.info(f"prediction time = {time.time() - t0} s")
 
         return outputs
 
@@ -377,12 +380,15 @@ class GlimpseAttentionModel:
 
         # self.log.info(f"f1_values.shape = {f1_values.shape}")
         # self.log.info(f"f1_values = {f1_values}")
-        f1 = np.max(np.mean(f1_values, axis=1))
+        f1_mean = np.mean(f1_values, axis=1)
+        f1 = np.max(f1_mean)
+        best_k = np.argmax(f1_mean) + 1
         avg_fpr_scores = np.mean(fpr_values, axis=1)
         avg_tpr_scores = np.mean(tpr_values, axis=1)
         auc = auc_roc(avg_fpr_scores, avg_tpr_scores)
         scores = {
             "f1": f1,
+            "best_k": best_k,
             "auc_roc": auc,
             "time_mse": np.mean(np.asarray(time_scores)) // test_batch_count
         }
